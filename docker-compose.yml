@@ -1,0 +1,34 @@
+# BDD locale : PostgreSQL + Adminer (interface web sur http://localhost:8080)
+# Lancer : docker compose up -d   |   Tout effacer : docker compose down -v
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fablab-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fablab
+      POSTGRES_USER: fablab
+      POSTGRES_PASSWORD: fablab
+    ports:
+      # 5440 côté PC : 5432/5433 sont souvent pris par un Postgres installé sur Windows
+      - "5440:5432"
+    volumes:
+      - fablab-data:/var/lib/postgresql/data
+      # init.sql n'est joué qu'au 1er démarrage (volume vide)
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fablab -d fablab"]
+      interval: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:4
+    container_name: fablab-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+volumes:
+  fablab-data:

@@ -1,0 +1,339 @@
+==========================================================================================================
+  MPD (Modèle Physique de Données) — Plateforme Fab Lab Ydays
+  SGBD cible : PostgreSQL 14+          Version 1 — 16/10/2026          Source : MCD v1
+==========================================================================================================
+
+LÉGENDE
+  PK        clé primaire (identifie chaque ligne)
+  FK -> t   clé étrangère vers la table t
+  UNIQUE    deux lignes ne peuvent pas avoir la même valeur
+  IDENTITY  INTEGER GENERATED ALWAYS AS IDENTITY : numéro auto-incrémenté
+  CHECK ck  contrainte de vérification, détaillée sous chaque table
+  NULL      colonne facultative          NOT NULL : colonne obligatoire
+
+CONVENTIONS
+  - Noms en minuscules, snake_case, au singulier.
+  - Argent en centimes (INTEGER) : 2500 = 25,00 EUR. Jamais de FLOAT pour l'argent.
+  - Quantités en NUMERIC(10,2), dans l'unité de base : grammes, millilitres ou unités.
+  - Longueurs en millimètres. Durées en minutes.
+  - Dates avec fuseau horaire : TIMESTAMPTZ. Une date seule (sans heure) : DATE.
+  - Emails enregistrés en minuscules par le back avant insertion.
+
+ORDRE DE CRÉATION : les tables sont listées dans l'ordre où il faut les créer
+(une table doit exister avant qu'une autre puisse pointer vers elle).
+
+==========================================================================================================
+   1. UTILISATEUR
+      Comptes @ynov.com (clients et admins).
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_utilisateur           | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| email                    | VARCHAR(254)   | NOT NULL  | UNIQUE                                         |
+| nom                      | VARCHAR(80)    | NULL      |                                                |
+| prenom                   | VARCHAR(80)    | NULL      |                                                |
+| role                     | VARCHAR(10)    | NOT NULL  | DEFAULT 'client', CHECK ck_role                |
+| est_verifie              | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| date_creation            | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_role                   role IN ('client', 'admin')
+    ck_email_ynov             email LIKE '%@ynov.com'
+
+==========================================================================================================
+   2. CODE_OTP
+      Codes à usage unique envoyés par Brevo.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_otp                   | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_utilisateur           | INTEGER        | NOT NULL  | FK -> utilisateur, ON DELETE CASCADE           |
+| code_hash                | VARCHAR(255)   | NOT NULL  | hash du code, jamais le code en clair          |
+| date_expiration          | TIMESTAMPTZ    | NOT NULL  |                                                |
+| nb_tentatives            | SMALLINT       | NOT NULL  | DEFAULT 0, CHECK ck_tentatives                 |
+| est_utilise              | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_tentatives             nb_tentatives BETWEEN 0 AND 5
+
+==========================================================================================================
+   3. CONVERSATION
+      Un seul fil de discussion par client.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_conversation          | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_client                | INTEGER        | NOT NULL  | FK -> utilisateur, UNIQUE, ON DELETE CASCADE   |
+| date_creation            | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+
+==========================================================================================================
+   4. MESSAGE
+      Messages du chat client <-> admins.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_message               | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_conversation          | INTEGER        | NOT NULL  | FK -> conversation, ON DELETE CASCADE          |
+| id_auteur                | INTEGER        | NOT NULL  | FK -> utilisateur                              |
+| contenu                  | TEXT           | NULL      |                                                |
+| piece_jointe             | VARCHAR(500)   | NULL      | chemin du fichier envoyé                       |
+| date_envoi               | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_message_non_vide       contenu IS NOT NULL OR piece_jointe IS NOT NULL
+
+==========================================================================================================
+   5. PRODUIT
+      Stock : consommables et matériel.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_produit               | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| nom                      | VARCHAR(120)   | NOT NULL  |                                                |
+| categorie                | VARCHAR(20)    | NOT NULL  | CHECK ck_categorie                             |
+| couleur                  | VARCHAR(40)    | NULL      |                                                |
+| est_consommable          | BOOLEAN        | NOT NULL  |                                                |
+| unite_prix               | VARCHAR(5)     | NULL      | CHECK ck_unite                                 |
+| prix_centimes            | INTEGER        | NULL      | CHECK ck_prix                                  |
+| quantite_stock           | NUMERIC(10,2)  | NOT NULL  | DEFAULT 0, CHECK ck_stock (g, ml ou unités)    |
+| est_actif                | BOOLEAN        | NOT NULL  | DEFAULT true                                   |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_categorie              categorie IN ('filament', 'peinture', 'tee_shirt', 'materiel')
+    ck_unite                  unite_prix IN ('kg', 'ml', 'unite')
+    ck_prix                   prix_centimes >= 0
+    ck_stock                  quantite_stock >= 0
+    ck_tarif_si_consommable   (est_consommable AND unite_prix IS NOT NULL AND prix_centimes IS NOT NULL)
+                              OR (NOT est_consommable AND unite_prix IS NULL AND prix_centimes IS NULL)
+
+==========================================================================================================
+   6. PROJET
+      Demandes des clients (impression 3D ou flocage).
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_projet                | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_auteur                | INTEGER        | NOT NULL  | FK -> utilisateur                              |
+| id_produit_choisi        | INTEGER        | NOT NULL  | FK -> produit (bobine ou tee-shirt)            |
+| titre                    | VARCHAR(120)   | NOT NULL  |                                                |
+| categorie                | VARCHAR(20)    | NOT NULL  | CHECK ck_categorie                             |
+| cadre                    | VARCHAR(20)    | NOT NULL  | CHECK ck_cadre                                 |
+| description              | TEXT           | NOT NULL  |                                                |
+| statut                   | VARCHAR(20)    | NOT NULL  | DEFAULT 'soumis', CHECK ck_statut              |
+| niveau_detail            | SMALLINT       | NULL      | CHECK ck_niveau                                |
+| longueur_mm              | SMALLINT       | NULL      | CHECK ck_dimensions                            |
+| largeur_mm               | SMALLINT       | NULL      | CHECK ck_dimensions                            |
+| hauteur_mm               | SMALLINT       | NULL      | CHECK ck_dimensions                            |
+| solidite_pct             | SMALLINT       | NULL      | CHECK ck_solidite                              |
+| usage_mecanique          | TEXT           | NULL      |                                                |
+| poncage_demande          | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| peinture_demandee        | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| date_limite              | DATE           | NULL      |                                                |
+| participe_lancement      | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| participe_poncage        | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| participe_peinture       | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| participe_flocage        | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| progression_pct          | SMALLINT       | NULL      | CHECK ck_progression                           |
+| fin_impression_prevue    | TIMESTAMPTZ    | NULL      | sert au compte à rebours                       |
+| motif_refus              | TEXT           | NULL      |                                                |
+| date_soumission          | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_categorie              categorie IN ('impression_3d', 'tee_shirt')
+    ck_cadre                  cadre IN ('ydays', 'scolaire', 'perso')
+    ck_statut                 statut IN ('soumis', 'accepte', 'refuse', 'en_impression',
+                              'en_finition', 'en_preparation', 'pret', 'termine')
+    ck_niveau                 niveau_detail BETWEEN 1 AND 5
+    ck_dimensions             longueur_mm > 0 AND largeur_mm > 0 AND hauteur_mm > 0
+    ck_solidite               solidite_pct BETWEEN 0 AND 100
+    ck_progression            progression_pct BETWEEN 0 AND 100
+    ck_tee_shirt_sans_3d      categorie = 'impression_3d' OR (niveau_detail IS NULL
+                              AND longueur_mm IS NULL AND largeur_mm IS NULL
+                              AND hauteur_mm IS NULL AND solidite_pct IS NULL)
+
+==========================================================================================================
+   7. FICHIER
+      Fichiers déposés par le client (.stl ou visuel).
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_fichier               | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_projet                | INTEGER        | NOT NULL  | FK -> projet, ON DELETE CASCADE                |
+| nom_original             | VARCHAR(255)   | NOT NULL  |                                                |
+| chemin                   | VARCHAR(500)   | NOT NULL  |                                                |
+| type                     | VARCHAR(10)    | NOT NULL  | CHECK ck_type                                  |
+| taille_octets            | BIGINT         | NOT NULL  | CHECK ck_taille                                |
+| date_depot               | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_type                   type IN ('stl', 'visuel')
+    ck_taille                 taille_octets > 0
+
+==========================================================================================================
+   8. ETAPE
+      Historique des étapes = agenda interne admin.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_etape                 | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_projet                | INTEGER        | NOT NULL  | FK -> projet, ON DELETE CASCADE                |
+| id_admin                 | INTEGER        | NULL      | FK -> utilisateur, ON DELETE SET NULL          |
+| type_etape               | VARCHAR(25)    | NOT NULL  | CHECK ck_type_etape                            |
+| date_debut               | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
+| date_fin                 | TIMESTAMPTZ    | NULL      | CHECK ck_dates                                 |
+| commentaire              | TEXT           | NULL      |                                                |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_type_etape             type_etape IN ('soumission', 'acceptation', 'refus',
+                              'lancement_impression', 'poncage', 'peinture', 'flocage',
+                              'pret', 'cloture')
+    ck_dates                  date_fin IS NULL OR date_fin >= date_debut
+
+==========================================================================================================
+   9. BILAN
+      Saisi par l'admin à la clôture « Projet fini ».
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_bilan                 | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_projet                | INTEGER        | NOT NULL  | FK -> projet, UNIQUE                           |
+| temps_impression_min     | INTEGER        | NULL      | CHECK ck_temps                                 |
+| poncage_fait             | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| temps_poncage_min        | INTEGER        | NULL      | CHECK ck_temps, ck_poncage                     |
+| peinture_faite           | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
+| temps_peinture_min       | INTEGER        | NULL      | CHECK ck_temps, ck_peinture                    |
+| delai_livraison_jours    | SMALLINT       | NULL      | CHECK ck_temps                                 |
+| prix_total_centimes      | INTEGER        | NOT NULL  | CHECK ck_prix_total                            |
+| date_cloture             | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_temps                  chaque durée >= 0 (quand elle est renseignée)
+    ck_poncage                poncage_fait OR temps_poncage_min IS NULL
+    ck_peinture               peinture_faite OR temps_peinture_min IS NULL
+    ck_prix_total             prix_total_centimes >= 0
+
+==========================================================================================================
+  10. CONSOMMATION
+      Vient de l'association CONSOMMER (n,n) : bilan <-> produit.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_bilan                 | INTEGER        | NOT NULL  | PK (1/2), FK -> bilan, ON DELETE CASCADE       |
+| id_produit               | INTEGER        | NOT NULL  | PK (2/2), FK -> produit                        |
+| quantite                 | NUMERIC(10,2)  | NOT NULL  | CHECK ck_quantite (unité du produit)           |
+| prix_unitaire_centimes   | INTEGER        | NOT NULL  | CHECK ck_prix_fige (prix figé)                 |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_quantite               quantite > 0
+    ck_prix_fige              prix_unitaire_centimes >= 0
+
+==========================================================================================================
+  11. PUBLICATION
+      Fiche publique du projet dans le Portfolio.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_publication           | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_projet                | INTEGER        | NOT NULL  | FK -> projet, UNIQUE, ON DELETE CASCADE        |
+| description_publique     | TEXT           | NOT NULL  |                                                |
+| date_publication         | TIMESTAMPTZ    | NULL      | NULL tant que pas publiée                      |
+| est_visible              | BOOLEAN        | NOT NULL  | DEFAULT false                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+
+==========================================================================================================
+  12. PHOTO
+      Photos d'une publication du Portfolio.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_photo                 | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_publication           | INTEGER        | NOT NULL  | FK -> publication, ON DELETE CASCADE           |
+| chemin                   | VARCHAR(500)   | NOT NULL  |                                                |
+| legende                  | VARCHAR(200)   | NULL      |                                                |
+| ordre                    | SMALLINT       | NOT NULL  | DEFAULT 0 (ordre d'affichage)                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+
+==========================================================================================================
+  13. AVIS
+      Un avis maximum par projet terminé.
+==========================================================================================================
++--------------------------+----------------+-----------+------------------------------------------------+
+| colonne                  | type           | nul ?     | contraintes / remarque                         |
++==========================+================+===========+================================================+
+| id_avis                  | INTEGER        | NOT NULL  | PK, IDENTITY                                   |
+| id_projet                | INTEGER        | NOT NULL  | FK -> projet, UNIQUE, ON DELETE CASCADE        |
+| note                     | SMALLINT       | NOT NULL  | CHECK ck_note                                  |
+| commentaire              | TEXT           | NULL      |                                                |
+| date_avis                | TIMESTAMPTZ    | NOT NULL  | DEFAULT now()                                  |
++--------------------------+----------------+-----------+------------------------------------------------+
+  Contraintes CHECK :
+    ck_note                   note BETWEEN 1 AND 5
+
+==========================================================================================================
+  RELATIONS (clés étrangères)
+==========================================================================================================
+  table.colonne                    ->  table référencée          si le parent est supprimé
+  ----------------------------------------------------------------------------------------------------
+  code_otp.id_utilisateur          ->  utilisateur              CASCADE  (codes supprimés)
+  conversation.id_client           ->  utilisateur              CASCADE
+  message.id_conversation          ->  conversation             CASCADE
+  message.id_auteur                ->  utilisateur              RESTRICT (refusé)
+  projet.id_auteur                 ->  utilisateur              RESTRICT
+  projet.id_produit_choisi         ->  produit                  RESTRICT (désactiver le produit)
+  fichier.id_projet                ->  projet                   CASCADE
+  etape.id_projet                  ->  projet                   CASCADE
+  etape.id_admin                   ->  utilisateur              SET NULL (l'historique reste)
+  bilan.id_projet                  ->  projet                   RESTRICT
+  consommation.id_bilan            ->  bilan                    CASCADE
+  consommation.id_produit          ->  produit                  RESTRICT
+  publication.id_projet            ->  projet                   CASCADE
+  photo.id_publication             ->  publication              CASCADE
+  avis.id_projet                   ->  projet                   CASCADE
+
+==========================================================================================================
+  INDEX À CRÉER
+==========================================================================================================
+  PostgreSQL crée un index automatiquement pour les PK et les UNIQUE, mais PAS pour les
+  clés étrangères. Sans index, chaque jointure ou suppression parcourt toute la table.
+
+  idx_code_otp_utilisateur     ON code_otp (id_utilisateur)
+  idx_message_conversation     ON message (id_conversation, date_envoi)
+  idx_message_auteur           ON message (id_auteur)
+  idx_projet_auteur            ON projet (id_auteur)
+  idx_projet_produit           ON projet (id_produit_choisi)
+  idx_projet_statut            ON projet (statut)          -- filtres de l'onglet Suivi
+  idx_fichier_projet           ON fichier (id_projet)
+  idx_etape_projet             ON etape (id_projet, date_debut)
+  idx_etape_admin              ON etape (id_admin)
+  idx_consommation_produit     ON consommation (id_produit)
+  idx_photo_publication        ON photo (id_publication, ordre)
+
+==========================================================================================================
+  RÈGLES MÉTIER GÉRÉES PAR LE BACK (pas exprimables en contrainte SQL simple)
+==========================================================================================================
+  - Pièce > 260 mm sur un côté : autorisée seulement avec plusieurs fichiers de type 'stl'.
+  - projet.id_produit_choisi : produit actif, consommable, en stock, et de la bonne
+    catégorie (filament pour une impression 3D, tee_shirt pour un flocage).
+  - Un avis : seulement si projet.statut = 'termine', posté par l'auteur du projet.
+  - etape.id_admin et la clôture : seulement un utilisateur avec role = 'admin'.
+  - Clôture « Projet fini » = UNE transaction : INSERT bilan + consommation,
+    UPDATE produit.quantite_stock, UPDATE projet.statut, INSERT etape.
+    Si le stock devient négatif, ck_stock fait échouer toute la transaction.
+  - Changement de statut : uniquement selon la machine à états définie dans le back.
+
+==========================================================================================================
+  Fin du MPD
+==========================================================================================================

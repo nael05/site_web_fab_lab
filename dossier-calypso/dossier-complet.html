@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Dossier technique - L'agence de Calypso</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 18mm 18mm; @bottom-center { content: "Réseaux B2 - Projet de synthèse - page " counter(page) " / " counter(pages); font: 9pt Arial, sans-serif; color: #555; } }
+  body { font: 12.5pt/1.6 "Times New Roman", Times, serif; color: #000; }
+  h1 { font: bold 20pt Arial, sans-serif; margin: 0 0 4pt 0; }
+  h2 { font: bold 13.5pt Arial, sans-serif; border-bottom: 1px solid #000; padding-bottom: 2pt; margin: 24pt 0 8pt 0; page-break-after: avoid; }
+  h3 { font: bold 11pt Arial, sans-serif; margin: 10pt 0 3pt 0; page-break-after: avoid; }
+  p { margin: 4pt 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font: 11pt Arial, sans-serif; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #444; padding: 5pt 7pt; text-align: left; vertical-align: top; }
+  th { background: #e6e6e6; }
+  pre { font: 9.6pt/1.45 Consolas, "Courier New", monospace; background: #f4f4f4; border: 1px solid #ccc; padding: 5pt; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; margin: 4pt 0; page-break-inside: avoid; }
+  code { font: 10pt Consolas, "Courier New", monospace; }
+  .meta { font: 10pt Arial, sans-serif; color: #333; margin-bottom: 8pt; }
+  .ok { font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #888; }
+  .fig { text-align: center; font: italic 9pt Arial, sans-serif; margin: 6pt 0; page-break-inside: avoid; }
+  ul { margin: 3pt 0 3pt 16pt; padding: 0; }
+</style>
+</head>
+<body>
+
+<h1>L'agence de Calypso : dossier technique</h1>
+<div class="meta">Réseaux B2 - Projet de synthèse - Ynov Campus Paris Ouest - rendu du 13/11/2026<br>
+Auteurs : Nael, Anguelo, Lucas et Romain - Lab VMware, réalisé le 10/11/2026</div>
+
+<h2>1. Synthèse</h2>
+<p><b>Existant (TP 1 à 3).</b> Le siège de Calypso (Nanterre) repose sur quatre machines Debian 13 : <code>gw</code> (routeur, pare-feu nftables, NAT, serveur WireGuard), <code>srv</code> (DNS bind9, proxy Squid), <code>web</code> (intranet nginx en HTTPS, certificat signé par la CA interne de Calypso) et <code>cli</code> (poste du LAN).</p>
+<p><b>Ajouté pendant le projet.</b></p>
+<ul>
+  <li>La VM <code>agence</code> (routeur de l'agence de Lille, LAN 10.10.30.0/24) et un tunnel WireGuard site à site avec <code>gw</code> (réseau 10.10.99.0/24), lancé au démarrage.</li>
+  <li>Sur <code>gw</code> : les règles nftables F11 (UDP 51820), F12 à F14 (flux de nomade) et F15 à F19 (flux de l'agence), numérotées dans <code>/etc/nftables.conf</code>.</li>
+  <li>Sur <code>srv</code> : le réseau de l'agence ajouté aux ACL de bind9 et de Squid ; Netdata (dépôt officiel) avec cinq collecteurs ; le tableau de bord n'écoute que sur 127.0.0.1.</li>
+  <li>Remise en conformité des TP 2 et 3 : l'intranet HTTPS avait été installé sur <code>cli</code> ; il a été refait sur <code>web</code> (10.10.20.10), avec une clé créée sur web et un certificat signé par la CA de srv. Le compte SFTP chrooté <code>echange</code> y a aussi été créé.</li>
+</ul>
+<p><b>État à la remise.</b> Les exigences E1 à E7 sont vérifiées (section 6). Le lab a aussi été remis dans l'état attendu à la fin du TP 3 (tunnel de nomade, intranet HTTPS et SFTP chrooté sur web, Squid actif). Les limites restantes sont en section 9.</p>
+
+<h2>2. Schéma</h2>
+<svg viewBox="0 0 760 330" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif" font-size="11">
+  <rect x="250" y="8" width="260" height="34" fill="#fff" stroke="#000"/>
+  <text x="380" y="24" text-anchor="middle">Internet = réseau NAT VMware</text>
+  <text x="380" y="37" text-anchor="middle">192.168.125.0/24 (passerelle .2)</text>
+  <line x1="380" y1="42" x2="380" y2="95" stroke="#000"/>
+  <line x1="660" y1="42" x2="660" y2="95" stroke="#000"/>
+  <line x1="380" y1="42" x2="660" y2="42" stroke="#000" stroke-dasharray="2,2"/>
+  <rect x="290" y="95" width="180" height="70" fill="#eee" stroke="#000"/>
+  <text x="380" y="113" text-anchor="middle" font-weight="bold">gw (siège)</text>
+  <text x="380" y="127" text-anchor="middle">ens33 WAN 192.168.125.130 (DHCP)</text>
+  <text x="380" y="141" text-anchor="middle">ens37 LAN 10.10.10.254</text>
+  <text x="380" y="155" text-anchor="middle">ens38 DMZ 10.10.20.254 - wg0 10.10.99.1</text>
+  <rect x="560" y="95" width="200" height="70" fill="#eee" stroke="#000"/>
+  <text x="660" y="113" text-anchor="middle" font-weight="bold">agence (Lille)</text>
+  <text x="660" y="127" text-anchor="middle">ens37 WAN 192.168.125.137 (DHCP)</text>
+  <text x="660" y="141" text-anchor="middle">ens38 LAN 10.10.30.1/24</text>
+  <text x="660" y="155" text-anchor="middle">wg0 10.10.99.10</text>
+  <line x1="470" y1="130" x2="560" y2="130" stroke="#000" stroke-width="2" stroke-dasharray="6,3"/>
+  <text x="515" y="122" text-anchor="middle" font-size="10">WireGuard</text>
+  <text x="515" y="146" text-anchor="middle" font-size="10">UDP 51820</text>
+  <line x1="335" y1="165" x2="335" y2="215" stroke="#000"/>
+  <line x1="425" y1="165" x2="425" y2="215" stroke="#000"/>
+  <text x="333" y="190" text-anchor="end" font-size="10">LAN 10.10.10.0/24</text>
+  <text x="430" y="190" font-size="10">DMZ 10.10.20.0/24</text>
+  <rect x="150" y="215" width="190" height="75" fill="#fff" stroke="#000"/>
+  <text x="245" y="233" text-anchor="middle" font-weight="bold">srv 10.10.10.10</text>
+  <text x="245" y="247" text-anchor="middle">bind9 (DNS), Squid 3128</text>
+  <text x="245" y="261" text-anchor="middle">Netdata (127.0.0.1:19999)</text>
+  <text x="245" y="278" text-anchor="middle">cli 10.10.10.100 (poste LAN)</text>
+  <rect x="400" y="215" width="190" height="75" fill="#fff" stroke="#000"/>
+  <text x="495" y="233" text-anchor="middle" font-weight="bold">web 10.10.20.10</text>
+  <text x="495" y="247" text-anchor="middle">nginx 80/443 (intranet)</text>
+  <text x="495" y="261" text-anchor="middle">certificat signé par la CA Calypso</text>
+  <rect x="600" y="215" width="150" height="40" fill="#fff" stroke="#000" stroke-dasharray="3,3"/>
+  <text x="675" y="232" text-anchor="middle">LAN agence 10.10.30.0/24</text>
+  <text x="675" y="246" text-anchor="middle" font-size="10">(aucun poste dans le lab)</text>
+  <line x1="660" y1="165" x2="660" y2="215" stroke="#000"/>
+  <rect x="20" y="215" width="110" height="40" fill="#fff" stroke="#000" stroke-dasharray="3,3"/>
+  <text x="75" y="232" text-anchor="middle">nomade (NAT)</text>
+  <text x="75" y="246" text-anchor="middle" font-size="10">wg0 10.10.99.2</text>
+</svg>
+<div class="fig">Fig. 1 - Machines, réseaux, cartes et tunnel. Le PC hôte administre en SSH par le WAN de gw (F2).</div>
+
+<h2>3. Plan d'adressage</h2>
+<table>
+<tr><th>Réseau</th><th>Rôle</th><th>Passerelle</th><th>DHCP</th><th>Adresses fixes</th></tr>
+<tr><td>192.168.125.0/24 (NAT VMware, « Internet »)</td><td>WAN du siège et de l'agence</td><td>192.168.125.2</td><td>DHCP de VMware</td><td>gw .130, agence .137 (baux DHCP), nomade .135</td></tr>
+<tr><td>10.10.10.0/24</td><td>LAN du siège</td><td>10.10.10.254 (gw)</td><td>Kea sur srv : 10.10.10.100 à .199 (réservation .50)</td><td>gw .254, srv .10 ; cli .100 (bail DHCP)</td></tr>
+<tr><td>10.10.20.0/24</td><td>DMZ</td><td>10.10.20.254 (gw)</td><td>aucun</td><td>gw .254, web .10</td></tr>
+<tr><td>10.10.99.0/24</td><td>Tunnels WireGuard</td><td>-</td><td>aucun</td><td>gw .1, nomade .2, agence .10</td></tr>
+<tr><td>10.10.30.0/24</td><td>LAN de l'agence</td><td>10.10.30.1 (agence)</td><td>aucun (pas de poste)</td><td>agence .1</td></tr>
+</table>
+
+<h2>4. Matrice des flux</h2>
+<p>Politique par défaut de gw : <code>drop</code> en entrée et en transit, avec journalisation (<code>gw-input-drop</code>, <code>gw-forward-drop</code>). Les lignes F15 et suivantes ont été écrites avant les règles ; chaque règle nftables porte son numéro en commentaire.</p>
+<table>
+<tr><th>N°</th><th>Source → destination</th><th>Service</th><th>Justification</th></tr>
+<tr><td>F1</td><td>LAN → gw</td><td>TCP 22</td><td>Administration de gw depuis le LAN</td></tr>
+<tr><td>F2</td><td>WAN (PC hôte) → gw</td><td>TCP 22</td><td>Administration du lab depuis le PC hôte</td></tr>
+<tr><td>F3</td><td>LAN → Internet</td><td>tout (NAT)</td><td>Accès Internet des postes</td></tr>
+<tr><td>F4</td><td>LAN → DMZ</td><td>TCP 22, 80, 443 ; ping</td><td>Administration et test de web</td></tr>
+<tr><td>F5</td><td>WAN → web</td><td>TCP 80, 443 (DNAT)</td><td>Publication de l'intranet</td></tr>
+<tr><td>F6</td><td>DMZ → srv</td><td>DNS 53 TCP/UDP</td><td>Résolution de noms de web</td></tr>
+<tr><td>F7</td><td>DMZ → Internet</td><td>TCP 80, 443</td><td>Mises à jour de web</td></tr>
+<tr><td>F8</td><td>DMZ → LAN (sauf F6)</td><td>tous</td><td>Interdit et journalisé : un web compromis ne doit pas atteindre le LAN</td></tr>
+<tr><td>F9</td><td>Internet → LAN</td><td>tous</td><td>Interdit et journalisé : le LAN n'est pas exposé</td></tr>
+<tr><td>F10</td><td>tout le reste</td><td>tous</td><td>Interdit et journalisé (politique drop, <code>gw-input-drop</code> et <code>gw-forward-drop</code>)</td></tr>
+<tr><td><b>F11</b></td><td>WAN → gw</td><td>UDP 51820</td><td>Seul port ouvert pour WireGuard ; sans lui, pas de handshake</td></tr>
+<tr><td><b>F12</b></td><td>nomade (10.10.99.2) → gw</td><td>TCP 22</td><td>Administration de gw par le VPN</td></tr>
+<tr><td><b>F13</b></td><td>nomade → srv</td><td>DNS 53 ; TCP 3128</td><td>DNS interne et proxy Squid par le VPN</td></tr>
+<tr><td><b>F14</b></td><td>nomade → web ; nomade → partout</td><td>TCP 22, 80, 443 ; ping</td><td>Intranet et administration de web ; test de connectivité. F12 à F14 sont limitées à l'adresse de nomade</td></tr>
+<tr><td><b>F15</b></td><td>LAN → agence (via wg0)</td><td>TCP 22 ; ping</td><td>Administrer et superviser l'agence depuis le siège</td></tr>
+<tr><td><b>F16</b></td><td>agence → srv</td><td>DNS 53 TCP/UDP</td><td>DNS interne pour les salariés de l'agence</td></tr>
+<tr><td><b>F17</b></td><td>agence → srv</td><td>TCP 3128</td><td>Proxy Squid</td></tr>
+<tr><td><b>F18</b></td><td>agence → web</td><td>TCP 80, 443</td><td>Intranet</td></tr>
+<tr><td><b>F19</b></td><td>agence → srv</td><td>ping</td><td>Test de connectivité du tunnel</td></tr>
+</table>
+<p>Tout le reste, y compris le SSH de l'agence vers srv, est refusé et journalisé.</p>
+
+<h2>5. Configurations</h2>
+<h3>5.1 gw : <code>/etc/wireguard/wg0.conf</code></h3>
+<pre>[Interface]
+Address = 10.10.99.1/24
+ListenPort = 51820
+PrivateKey = &lt;clé privée de gw&gt;
+
+# Pair agence : son adresse de tunnel + tout son réseau local (d'où deux réseaux)
+[Peer]
+PublicKey = 5FGkbixUkHih7ncuFq/6PhnykaR1JZIklm7M3H/CeEc=
+AllowedIPs = 10.10.99.10/32, 10.10.30.0/24
+
+# Pair nomade (TP 3) : une seule adresse de tunnel
+[Peer]
+PublicKey = LMbYZk3EXJ/v5rn2zR6e6su1nw/7fbBBi98v25OnA0g=
+AllowedIPs = 10.10.99.2/32</pre>
+<h3>5.2 agence : <code>/etc/wireguard/wg0.conf</code> (service <code>wg-quick@wg0</code> activé)</h3>
+<pre>[Interface]
+Address = 10.10.99.10/24
+ListenPort = 51820
+PrivateKey = &lt;clé privée de agence&gt;
+
+# Pair gw : le tunnel, le LAN et la DMZ du siège
+[Peer]
+PublicKey = qX3S79x/ju9vBlw+HjE9y2+HA9/azIvrQdvJL7eoaVY=
+Endpoint = 192.168.125.130:51820
+AllowedIPs = 10.10.99.0/24, 10.10.10.0/24, 10.10.20.0/24
+PersistentKeepalive = 25</pre>
+<h3>5.3 gw : <code>/etc/nftables.conf</code> (lignes ajoutées)</h3>
+<pre>define WEB = 10.10.20.10                     # corrigé (avant : 10.10.10.100)
+define VPN = "wg0"
+define AGENCE = 10.10.30.0/24
+define NOMADE = 10.10.99.2
+# chaîne input, avant le log :
+iifname $WAN udp dport 51820 accept                                       # [F11]
+iifname $VPN ip saddr $NOMADE tcp dport 22 accept                         # [F12]
+# chaîne forward, avant le log :
+iifname $VPN oifname $LAN ip saddr $NOMADE ip daddr $SRV meta l4proto { tcp, udp } th dport 53 accept  # [F13]
+iifname $VPN oifname $LAN ip saddr $NOMADE ip daddr $SRV tcp dport 3128 accept                          # [F13]
+iifname $VPN oifname $DMZ ip saddr $NOMADE ip daddr $WEB tcp dport { 22, 80, 443 } accept              # [F14]
+iifname $VPN ip saddr $NOMADE icmp type echo-request accept                                             # [F14]
+iifname $LAN oifname $VPN ip daddr $AGENCE tcp dport 22 accept            # [F15]
+iifname $LAN oifname $VPN ip daddr $AGENCE icmp type echo-request accept  # [F15]
+iifname $VPN ip saddr $AGENCE ip daddr $SRV meta l4proto { tcp, udp } th dport 53 accept  # [F16]
+iifname $VPN ip saddr $AGENCE ip daddr $SRV tcp dport 3128 accept         # [F17]
+iifname $VPN ip saddr $AGENCE ip daddr $WEB tcp dport { 80, 443 } accept  # [F18]
+iifname $VPN ip saddr $AGENCE ip daddr $SRV icmp type echo-request accept # [F19]</pre>
+<p>Les règles sont placées avant les lignes de journalisation : une règle après le log serait atteinte trop tard pour être utile. Rechargement avec un retour arrière programmé (<code>systemd-run --on-active</code>) qui restaure la sauvegarde si la connexion était perdue.</p>
+<h3>5.4 agence : réseau et SSH</h3>
+<pre>/etc/network/interfaces :  ens37 en DHCP (WAN)  -  ens38 static 10.10.30.1/24 (LAN)
+/etc/ssh/sshd_config.d/10-calypso.conf :
+  PasswordAuthentication no
+  KbdInteractiveAuthentication no
+  PermitRootLogin no</pre>
+<p>Rendue unique comme web au TP 2 : nom d'hôte <code>agence</code>, <code>machine-id</code> propre et clés d'hôte SSH régénérées (<code>ssh-keygen -A</code>), donc différentes de celles de <code>debian-base</code>.</p>
+<h3>5.5 srv : ACL de bind9 et de Squid</h3>
+<pre>/etc/bind/named.conf.options, acl "calypso" :  + 10.10.30.0/24;   // agence
+/etc/squid/conf.d/calypso.conf :  acl calypso src 10.10.10.0/24 10.10.20.0/24 10.10.99.0/24 10.10.30.0/24
+(Squid était arrêté et désactivé : <code>systemctl enable --now squid</code>)</pre>
+<p>DHCP (Kea sur srv) : l'option <code>domain-name-servers</code> annonçait 10.10.10.100 (l'adresse de cli) ; elle est corrigée en 10.10.10.10 (srv).</p>
+<h3>5.6 web : intranet</h3>
+<p>Nginx sur <code>web</code> : clé privée et demande de certificat créées sur web, signées par la CA de srv (SAN : intranet, www et web .calypso.internal), certificat dans <code>/etc/ssl/certs/intranet.crt</code>, clé en <code>root:root 600</code>, résolveur <code>nameserver 10.10.10.10</code>. SFTP : groupe <code>sftp-calypso</code>, compte <code>echange</code> (nologin) enfermé dans <code>/srv/sftp/echange</code> (dossier <code>depot</code>), connexion par clé uniquement. Nginx est arrêté et désactivé sur <code>cli</code>.</p>
+<h3>5.7 srv : Netdata</h3>
+<p>Dépôt officiel Netdata (<code>repository.netdata.cloud</code>, suite <code>trixie</code>, clé de signature dans <code>/usr/share/keyrings</code>), paquet <code>netdata</code> 2.12.3, statistiques anonymes désactivées, CA de Calypso ajoutée au magasin de certificats de srv.</p>
+<pre>/etc/netdata/netdata.conf :  [web] bind to = 127.0.0.1
+/etc/netdata/go.d/ping.conf       hosts: 10.10.10.254 (gw), 10.10.10.10 (srv), 10.10.20.10 (web), 10.10.30.1 (agence)
+/etc/netdata/go.d/portcheck.conf  gw:22 - srv:22,3128 - web:22,80,443 - agence:22
+/etc/netdata/go.d/httpcheck.conf  http://10.10.20.10/ (200 ou 301) ; https://intranet.calypso.internal/ (200, texte « Intranet de Calypso »)
+/etc/netdata/go.d/dns_query.conf  serveur 10.10.10.10 : intranet.calypso.internal, web.calypso.internal (A)
+/etc/netdata/go.d/x509check.conf  https://intranet.calypso.internal:443 (alerte à 14 j, critique à 7 j)</pre>
+
+<h2>6. Tests</h2>
+<p>Depuis l'agence, les tests utilisent la source 10.10.30.1 (aucun poste dans l'agence). Résultats relevés le 10/11/2026.</p>
+<table>
+<tr><th>Test</th><th>Attendu</th><th>Obtenu</th><th>Conf.</th></tr>
+<tr><td><code>ip -br addr</code> sur agence</td><td>adresse WAN + 10.10.30.1/24</td><td>ens37 192.168.125.137/24 ; ens38 10.10.30.1/24</td><td class="ok">oui</td></tr>
+<tr><td><code>sshd -T</code> sur agence</td><td>root interdit, clé seule</td><td>permitrootlogin no ; passwordauthentication no</td><td class="ok">oui</td></tr>
+<tr><td><code>wg show</code> (gw et agence)</td><td>handshake récent, pairs corrects</td><td>« latest handshake » de 9 et 10 s ; ping 10.10.99.1 : 2/2</td><td class="ok">oui</td></tr>
+<tr><td>Redémarrage de gw (11:16), puis <code>wg show</code> sur gw</td><td>tunnels relevés seuls, règles F11 et F15 à F19 rechargées</td><td>gw revenue en ~35 s ; handshakes de agence et de nomade en moins d'une minute ; <code>ip_forward</code> = 1</td><td class="ok">oui</td></tr>
+<tr><td>Redémarrage de agence, puis <code>wg show</code></td><td>tunnel relevé seul</td><td>agence revenue en ~35 s ; handshake en 9 s ; <code>wg-quick@wg0</code> enabled</td><td class="ok">oui</td></tr>
+<tr><td>Tunnel de nomade : <code>wg show</code>, puis <code>ping 10.10.99.1</code> depuis nomade</td><td>tunnel de nomade fonctionnel</td><td>handshake en 4 s ; ping : 2 reçus sur 2</td><td class="ok">oui</td></tr>
+<tr><td>Depuis nomade (10.10.99.2) : DNS, HTTP et HTTPS vers web, proxy 3128 ; SSH vers srv</td><td>autorisés (F12 à F14) ; SSH refusé</td><td>NOERROR et 10.10.20.10 ; 200 et 200 ; 3128 joignable ; SSH timed out</td><td class="ok">oui</td></tr>
+<tr><td><code>ping -I 10.10.30.1 -c1 10.10.10.10</code></td><td>1 received</td><td>1 packets received</td><td class="ok">oui</td></tr>
+<tr><td><code>dig +short -b 10.10.30.1 @10.10.10.10 intranet.calypso.internal</code></td><td>web.calypso.internal. puis 10.10.20.10</td><td>web.calypso.internal. 10.10.20.10 (NOERROR)</td><td class="ok">oui</td></tr>
+<tr><td><code>curl --interface 10.10.30.1</code> http / https vers 10.10.20.10</td><td>200 (ou 301)</td><td>200 / 200</td><td class="ok">oui</td></tr>
+<tr><td>Proxy : <code>nc -zv -s 10.10.30.1 10.10.10.10 3128</code></td><td>port joignable</td><td>succeeded ; requête HTTP via le proxy : 200</td><td class="ok">oui</td></tr>
+<tr><td><code>nc -zv -w 3 -s 10.10.30.1 10.10.10.10 22</code></td><td>timed out (refusé)</td><td>timed out ; ligne <code>gw-forward-drop</code> ci-dessous</td><td class="ok">oui</td></tr>
+<tr><td>Depuis srv : <code>ping 10.10.30.1</code> ; <code>ssh nael@10.10.30.1 hostname</code></td><td>réponse ; connexion par clé</td><td>1 received ; « agence »</td><td class="ok">oui</td></tr>
+<tr><td>Ports TCP de gw côté WAN (scan depuis le PC hôte)</td><td>aucun nouveau port</td><td>ouverts : 22 (F2), 80 et 443 (F5) ; fermés : 53, 3128, 19999. UDP 51820 ouvert par F11 (nécessaire au tunnel)</td><td class="ok">oui</td></tr>
+<tr><td>Tableau de bord Netdata</td><td>non exposé</td><td><code>ss -tlnp</code> : 127.0.0.1:19999 uniquement</td><td class="ok">oui</td></tr>
+</table>
+<p>Refus journalisé sur gw (<code>journalctl -k | grep gw-forward-drop</code>) :</p>
+<pre>nov. 10 11:04:57 gw kernel: gw-forward-drop: IN=wg0 OUT=ens37 SRC=10.10.30.1 DST=10.10.10.10 LEN=60 PROTO=TCP SPT=38907 DPT=22 SYN</pre>
+
+<h2>7. Supervision</h2>
+<p><b>Ce qui est supervisé</b> (Netdata sur srv) : présence de gw, srv, web et agence (ping) ; ports SSH, 80, 443 et 3128 ; code et contenu de l'intranet (HTTP et HTTPS) ; résolution DNS ; expiration du certificat de l'intranet. Les alertes sont les modèles fournis par Netdata (par exemple <code>ping_host_reachable</code>, <code>portcheck_connection_fails</code>, <code>httpcheck_web_service_up</code>, <code>x509check_days_until_expiration</code>).</p>
+<p><b>Accès au tableau de bord.</b> Il n'écoute que sur 127.0.0.1. Depuis le PC, on ouvre un tunnel SSH puis le navigateur sur <code>http://127.0.0.1:19999</code> :</p>
+<pre>ssh -L 19999:127.0.0.1:19999 srv</pre>
+<p><b>Panne provoquée.</b> Arrêt du tunnel sur agence (<code>sudo systemctl stop wg-quick@wg0</code>). Heures relevées dans le journal d'alertes de Netdata (<code>/api/v1/alarm_log</code>) :</p>
+<table>
+<tr><th>Heure (10/11/2026)</th><th>Événement</th></tr>
+<tr><td>10:58:35</td><td>Arrêt du tunnel sur agence</td></tr>
+<tr><td>10:59:15</td><td>Alerte <code>ping_host_reachable</code> (10.10.30.1) : CLEAR → <b>CRITICAL</b></td></tr>
+<tr><td>10:59:31</td><td>Rétablissement : <code>sudo systemctl start wg-quick@wg0</code> (handshake en 3 s)</td></tr>
+<tr><td>10:59:45</td><td>Alerte : CRITICAL → <b>CLEAR</b></td></tr>
+</table>
+<p>Une seconde transition (vers 11:00) correspond au redémarrage d'agence du test de la section 6. Première commande en cas de tunnel tombé : <code>sudo wg show</code> des deux côtés, puis <code>journalctl -k | grep 51820</code> sur gw.</p>
+<div class="fig"><img src="img/netdata-events.jpg" alt="Netdata, onglet Events" style="width:100%"><br>Fig. 2 - Netdata, onglet Events, ouvert par le tunnel SSH : transitions de <code>ping_host_reachable</code>.</div>
+
+<h2>8. Dépannage</h2>
+<table>
+<tr><th>Symptôme</th><th>Diagnostic</th><th>Solution</th></tr>
+<tr><td>Pas de « latest handshake » (rencontré)</td><td><code>journalctl -k | grep 51820</code> sur gw montrait <code>gw-input-drop</code> sur UDP 51820 ; <code>wg show</code> : clé publique du pair différente de celle de gw</td><td>Ajouter F11 ; mettre dans le pair la clé publique réelle de gw (<code>wg pubkey &lt; clé</code>)</td></tr>
+<tr><td>Handshake correct, mais rien ne passe</td><td><code>ip route | grep wg0</code> ; <code>ping -I 10.10.30.1</code> ; AllowedIPs du pair agence côté gw</td><td>Inclure 10.10.30.0/24 côté gw ; 10.10.10.0/24 et 10.10.20.0/24 côté agence</td></tr>
+<tr><td>DNS en REFUSED, proxy en 403 depuis l'agence (rencontré)</td><td><code>dig</code> : status REFUSED ; ACL de bind9 et de Squid sans 10.10.30.0/24</td><td>Ajouter le réseau aux deux ACL ; <code>named-checkconf</code>, <code>squid -k parse</code>, rechargement</td></tr>
+<tr><td>srv ne joint pas 10.10.30.1</td><td><code>journalctl -k | grep gw-forward-drop</code> (OUT=wg0) : F15 absente ou placée après le log</td><td>Placer F15 avant la ligne de journalisation</td></tr>
+<tr><td>Le tunnel ne remonte pas au redémarrage (rencontré)</td><td><code>systemctl is-enabled wg-quick@wg0</code> : disabled</td><td><code>systemctl enable --now wg-quick@wg0</code></td></tr>
+<tr><td>Netdata : alerte HTTPS en CRITICAL</td><td><code>curl -sS https://intranet.calypso.internal</code> sur srv : certificat inconnu</td><td>Installer la CA de Calypso sur srv (<code>update-ca-certificates</code>)</td></tr>
+<tr><td>Tableau de bord injoignable</td><td><code>ss -tlnp | grep 19999</code> sur srv ; tunnel SSH ouvert ?</td><td>Relancer <code>ssh -L 19999:127.0.0.1:19999 srv</code> ; <code>systemctl restart netdata</code></td></tr>
+<tr><td>L'intranet répond sur la mauvaise machine (rencontré)</td><td>Le DNS donne 10.10.20.10 mais nginx tournait sur 10.10.10.100 ; <code>ssh web</code> pointait sur cli</td><td>Installer l'intranet sur web, corriger <code>WEB</code> dans nftables et l'alias SSH</td></tr>
+</table>
+
+<h2>9. Limites et suite</h2>
+<ul>
+  <li><b>Tunnel de nomade (TP 3).</b> En place, avec les flux F12 à F14 de l'énoncé du TP 3, limités à l'adresse de nomade pour ne pas élargir les droits de l'agence.</li>
+  <li><b>Redondance.</b> Un seul routeur gw, un seul tunnel, un seul DNS : pas de reprise automatique.</li>
+  <li><b>Sauvegarde des configurations.</b> Copies manuelles dans <code>/root/backup-projet</code> ; il faudrait un script et un minuteur systemd, hors du serveur.</li>
+  <li><b>Poste client de l'agence.</b> Aucun poste réel ; il faudrait DHCP et routage activé sur agence, plus un NAT ou une route de retour.</li>
+  <li><b>Notifications.</b> Les alertes Netdata restent dans le tableau de bord ; aucune notification envoyée.</li>
+  <li><b>Accès d'administration du lab.</b> SSH ouvert sur le WAN de gw (F2) ; à fermer et remplacer par le VPN. Un droit <code>sudo</code> sans mot de passe a été créé pour l'automatisation (<code>/etc/sudoers.d/90-nael</code>) et une clé SSH sans phrase de passe existe sur srv pour joindre agence : à supprimer après la remise.</li>
+</ul>
+
+<div style="page-break-before: always"></div>
+<h2>Annexe A : /etc/nftables.conf de gw (fichier complet)</h2>
+<p>Les numéros entre crochets renvoient à la matrice des flux (section 4).</p>
+<pre style="font-size:7.6pt; page-break-inside:auto">#!/usr/sbin/nft -f
+# /etc/nftables.conf de gw : pare-feu de Calypso (TP 2 complété ; F11 à F14 ajoutées au TP 3, F15 à F19 au projet de synthèse)
+# Chaque règle applique une ligne de la matrice (numéro entre crochets).
+# Vérifier : sudo nft -c -f /etc/nftables.conf   Charger : sudo systemctl reload nftables
+
+flush ruleset
+
+# --- cartes réseau et adresses (adapter les noms : ip -br link) ---------------
+define WAN = "ens33"
+define LAN = "ens37"
+define DMZ = "ens38"
+define SRV = 10.10.10.10
+define WEB = 10.10.20.10
+define VPN = "wg0"
+define AGENCE = 10.10.30.0/24
+define NOMADE = 10.10.99.2
+
+# --- filtrage (IPv4 et IPv6) ------------------------------------------------
+table inet filtre {
+
+    # paquets destinés à gw lui-même
+    chain input {
+        type filter hook input priority filter; policy drop;          # trou 1 : liste blanche
+        ct state established,related accept                                           # trou 2 : les réponses
+        ct state invalid drop
+        iif "lo" accept
+        meta l4proto ipv6-icmp accept                     # IPv6 : découverte des voisins
+        icmp type echo-request limit rate 5/second accept  # ping de gw, limité
+        iifname $LAN tcp dport 22 accept                             # trou 3 : [F1]
+        iifname $WAN tcp dport 22 accept                   # [F2] administration depuis le PC hôte (lab)
+        iifname $WAN udp dport 51820 accept                                  # [F11] WireGuard : UDP 51820 depuis le WAN (tunnel de l'agence)
+        iifname $VPN ip saddr $NOMADE tcp dport 22 accept                    # [F12] administration de gw par le VPN (limitee a nomade)
+        log prefix "gw-input-drop: " level info
+    }
+
+    # paquets qui traversent gw (entre LAN, DMZ et Internet)
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        ct state established,related accept
+        ct state invalid drop
+        iifname $LAN oifname $WAN accept                               # trou 4 : [F3] LAN → Internet
+        iifname $LAN oifname $DMZ tcp dport { 22, 80, 443 } accept            # trou 5 : [F4] LAN → DMZ
+        iifname $LAN oifname $DMZ icmp type echo-request accept           # [F4] ping LAN → DMZ
+        iifname $WAN oifname $DMZ ip daddr $WEB tcp dport { 80, 443 } ct status dnat accept  # [F5]
+        iifname $DMZ oifname $LAN ip daddr $SRV meta l4proto { tcp, udp } th dport 53 accept # trous 6 et 7 : [F6]
+        iifname $DMZ oifname $WAN tcp dport { 80, 443 } accept            # [F7] mises à jour de web
+        # --- nomade (TP 3) : F13 et F14, limites a l'adresse de nomade ------------
+        iifname $VPN oifname $LAN ip saddr $NOMADE ip daddr $SRV meta l4proto { tcp, udp } th dport 53 accept # [F13] DNS par le VPN
+        iifname $VPN oifname $LAN ip saddr $NOMADE ip daddr $SRV tcp dport 3128 accept                       # [F13] proxy Squid par le VPN
+        iifname $VPN oifname $DMZ ip saddr $NOMADE ip daddr $WEB tcp dport { 22, 80, 443 } accept            # [F14] intranet et administration de web
+        iifname $VPN ip saddr $NOMADE icmp type echo-request accept                                          # [F14] ping depuis le VPN
+        # --- agence (projet de synthese) : F15 et suivantes ---------------------
+        iifname $LAN oifname $VPN ip daddr $AGENCE tcp dport 22 accept                          # [F15] siege (LAN) -&gt; agence : administration SSH
+        iifname $LAN oifname $VPN ip daddr $AGENCE icmp type echo-request accept                # [F15] siege (LAN) -&gt; agence : ping (supervision)
+        iifname $VPN ip saddr $AGENCE ip daddr $SRV meta l4proto { tcp, udp } th dport 53 accept # [F16] agence -&gt; DNS de srv
+        iifname $VPN ip saddr $AGENCE ip daddr $SRV tcp dport 3128 accept                       # [F17] agence -&gt; proxy Squid de srv
+        iifname $VPN ip saddr $AGENCE ip daddr $WEB tcp dport { 80, 443 } accept                # [F18] agence -&gt; intranet (web)
+        iifname $VPN ip saddr $AGENCE ip daddr $SRV icmp type echo-request accept                  # [F19] agence -&gt; srv : ping (test de connectivite)
+        log prefix "gw-forward-drop: " level info
+    }
+
+    # paquets émis par gw : on lui fait confiance
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+
+# --- traduction d'adresses (IPv4) -------------------------------------------
+table ip nat {
+
+    # NAT destination : publier web sur l'adresse WAN de gw [F5]
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        iifname $WAN tcp dport { 80, 443 } dnat to $WEB                # trou 8
+    }
+
+    # NAT source : le LAN et la DMZ sortent avec l'adresse WAN de gw
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname $WAN masquerade                                              # trou 9
+    }
+}</pre>
+<h2>Annexe B : configuration Netdata de srv</h2>
+<pre style="font-size:8pt; page-break-inside:auto"># ===== /etc/netdata/netdata.conf
+# /etc/netdata/netdata.conf de srv : tableau de bord limite a la boucle locale (E6).
+# Acces depuis le PC : ssh -L 19999:127.0.0.1:19999 srv  puis http://127.0.0.1:19999
+[web]
+    bind to = 127.0.0.1
+
+# ===== /etc/netdata/go.d/ping.conf
+# Presence des machines (ICMP) : gw, srv, web, agence (agence est joint par le tunnel WireGuard)
+jobs:
+  - name: calypso
+    hosts:
+      - 10.10.10.254   # gw
+      - 10.10.10.10    # srv
+      - 10.10.20.10    # web
+      - 10.10.30.1     # agence (via wg0)
+    packets: 3
+    interval: 5
+
+# ===== /etc/netdata/go.d/portcheck.conf
+# Ports des services : SSH, 80, 443, 3128
+jobs:
+  - name: gw
+    host: 10.10.10.254
+    ports: [22]
+  - name: srv
+    host: 10.10.10.10
+    ports: [22, 3128]
+  - name: web
+    host: 10.10.20.10
+    ports: [22, 80, 443]
+  - name: agence
+    host: 10.10.30.1
+    ports: [22]
+
+# ===== /etc/netdata/go.d/httpcheck.conf
+# Contenu de l'intranet : code HTTP et texte attendu dans la page
+jobs:
+  - name: intranet_http
+    url: http://10.10.20.10/
+    status_accepted: [200, 301]
+  - name: intranet_https
+    url: https://intranet.calypso.internal/
+    status_accepted: [200]
+    response_match: 'Intranet de Calypso'
+
+# ===== /etc/netdata/go.d/dns_query.conf
+# Resolution DNS aupres du serveur interne (srv)
+jobs:
+  - name: srv_dns
+    domains:
+      - intranet.calypso.internal
+      - web.calypso.internal
+    servers:
+      - 10.10.10.10
+    record_types: [A]
+
+# ===== /etc/netdata/go.d/x509check.conf
+# Expiration du certificat de l'intranet (alerte a 14 j, critique a 7 j)
+jobs:
+  - name: intranet
+    source: https://intranet.calypso.internal:443
+    days_until_expiration_warning: 14
+    days_until_expiration_critical: 7</pre>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Aide-mémoire de la démonstration - L'agence de Calypso</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 14mm 16mm; }
+  body { font: 10.5pt/1.4 "Times New Roman", Times, serif; color: #000; }
+  h1 { font: bold 17pt Arial, sans-serif; margin: 0 0 2pt 0; }
+  h2 { font: bold 11.5pt Arial, sans-serif; border-bottom: 1px solid #000; margin: 11pt 0 4pt 0; }
+  p { margin: 3pt 0; }
+  pre { font: 8.6pt/1.35 Consolas, "Courier New", monospace; background: #f4f4f4; border: 1px solid #ccc; padding: 4pt; white-space: pre-wrap; margin: 3pt 0; }
+  table { border-collapse: collapse; width: 100%; font: 9.3pt Arial, sans-serif; }
+  th, td { border: 1px solid #444; padding: 3pt 5pt; text-align: left; vertical-align: top; }
+  th { background: #e6e6e6; }
+  .meta { font: 9.5pt Arial, sans-serif; color: #333; }
+</style>
+</head>
+<body>
+<h1>Démonstration : aide-mémoire (10 minutes)</h1>
+<div class="meta">Projet de synthèse - L'agence de Calypso. Avant de commencer : 4 onglets de terminal ouverts (gw, agence, srv, tunnel Netdata) et le schéma du dossier à l'écran.</div>
+
+<h2>1. Le schéma (1 min)</h2>
+<p>Siège : gw relie le LAN 10.10.10.0/24, la DMZ 10.10.20.0/24 et Internet (NAT VMware). L'agence (routeur agence, LAN 10.10.30.0/24) est reliée à gw par un tunnel WireGuard 10.10.99.0/24 sur UDP 51820. Rien n'est ajouté sur Internet à part ce port. Supervision : Netdata sur srv.</p>
+
+<h2>2. Le tunnel (2 min)</h2>
+<pre>ssh gw "sudo wg show"
+ssh agence "sudo wg show"</pre>
+<p>À montrer : « latest handshake » récent des deux côtés, <code>allowed ips</code> (gw : 10.10.99.10/32 + 10.10.30.0/24 pour l'agence, 10.10.99.2/32 pour nomade), service activé au démarrage.</p>
+
+<h2>3. Les flux de l'agence (3 min)</h2>
+<p>Dans l'onglet agence (<code>ssh agence</code>), source 10.10.30.1 :</p>
+<pre>ping -I 10.10.30.1 -c1 10.10.10.10
+dig +short -b 10.10.30.1 @10.10.10.10 intranet.calypso.internal
+curl -s -o /dev/null -w '%{http_code}\n' --interface 10.10.30.1 http://10.10.20.10
+nc -zv -w3 -s 10.10.30.1 10.10.10.10 22        # REFUSÉ (timed out)</pre>
+<p>Puis la ligne du journal, dans l'onglet gw :</p>
+<pre>sudo journalctl -k --since "-2min" | grep gw-forward-drop | tail -1</pre>
+<p>Montrer F15 à F19 dans <code>/etc/nftables.conf</code> (<code>sudo grep -n "\[F1[5-9]\]" /etc/nftables.conf</code>) : règles numérotées, placées avant le log.</p>
+
+<h2>4. Netdata, alertes et panne (3 min)</h2>
+<pre>ssh -L 19999:127.0.0.1:19999 srv        # laisser ouvert, puis http://127.0.0.1:19999</pre>
+<p>Dans le navigateur : « Skip and use the dashboard anonymously », onglet <b>Alerts</b>, puis <b>Events</b> : l'historique de <code>ping_host_reachable</code> (CRITICAL puis CLEAR) de la panne provoquée. Panne en direct, si le temps le permet (CRITICAL en ~40 s, CLEAR en ~15 s après rétablissement) :</p>
+<pre>ssh agence "sudo systemctl stop wg-quick@wg0"     # panne
+ssh agence "sudo systemctl start wg-quick@wg0"    # rétablissement</pre>
+
+<h2>5. Plan B</h2>
+<table>
+<tr><th>Si...</th><th>Alors</th></tr>
+<tr><td>le tunnel ne monte pas</td><td><code>ssh agence "sudo systemctl restart wg-quick@wg0"</code> ; sinon <code>sudo journalctl -k | grep 51820</code> sur gw (F11), puis montrer les captures et l'historique du dossier</td></tr>
+<tr><td>Netdata ne s'ouvre pas</td><td>relancer le tunnel SSH ; sinon montrer la capture du dossier (section 7)</td></tr>
+<tr><td>une VM est éteinte</td><td>l'allumer dans VMware ; en attendant, parler du schéma et de la matrice des flux (section 4)</td></tr>
+</table>
+
+<h2>6. Questions individuelles : réponses courtes</h2>
+<table>
+<tr><th>Question</th><th>Réponse</th></tr>
+<tr><td>Pourquoi deux réseaux dans les AllowedIPs du pair agence côté gw, un seul pour nomade ?</td><td>L'agence est un routeur : il y a un réseau derrière elle (10.10.30.0/24) en plus de son adresse de tunnel. Nomade est un poste seul : 10.10.99.2/32.</td></tr>
+<tr><td>Un paquet de l'agence vers web : quelles chaînes de gw ? NAT ?</td><td>prerouting (rien, le DNAT ne vise que le WAN), forward (règle F18), postrouting (le masquerade ne s'applique qu'à la sortie WAN). Il n'est pas traduit : web voit 10.10.30.1.</td></tr>
+<tr><td>Le tunnel tombe : que voit Netdata ? Première commande ?</td><td>Alerte <code>ping_host_reachable</code> en CRITICAL (et le port 22 de l'agence en échec). Première commande : <code>sudo wg show</code> des deux côtés, puis <code>journalctl -k | grep 51820</code> sur gw.</td></tr>
+<tr><td>Pourquoi le tableau de bord n'écoute-t-il que sur 127.0.0.1 ?</td><td>Il n'a pas d'authentification : on ne l'expose pas. On y accède par un tunnel SSH, donc authentifié et chiffré.</td></tr>
+<tr><td>Comment l'agence résout-elle intranet.calypso.internal ? Et si srv est éteint ?</td><td>Via le DNS de srv (10.10.10.10) par le tunnel (F16, ACL de bind9 incluant 10.10.30.0/24) : un CNAME vers web, 10.10.20.10. Si srv est éteint, plus de résolution ni de proxy : seules les adresses IP restent joignables.</td></tr>
+<tr><td>Si on ajoutait un poste dans l'agence, que faudrait-il de plus sur agence ?</td><td>Activer <code>ip_forward</code>, servir le DHCP (ou une adresse fixe) avec agence comme passerelle et srv comme DNS, et des règles de transfert sur agence. Côté gw, rien : 10.10.30.0/24 est déjà dans les AllowedIPs et dans la variable AGENCE.</td></tr>
+</table>
+</body>
+</html>
