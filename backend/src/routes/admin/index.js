@@ -24,10 +24,20 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 
+import projetsAdmin from './projets.js';
+import stockAdmin from './stock.js';
+import chatAdmin from './chat.js';
+import portfolioAdmin from './portfolio.js';
+
 const router = Router();
 router.use(requireAuth, requireAdmin);
 
 // Test rapide : GET /api/admin/ping
 router.get('/ping', (req, res) => res.json({ ok: true, admin: req.user.email }));
+
+router.use('/projets', projetsAdmin);
+router.use('/stock', stockAdmin);
+router.use('/chat', chatAdmin);
+router.use('/portfolio', portfolioAdmin);
 
 export default router;

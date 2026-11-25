@@ -6,6 +6,7 @@ import path from 'node:path';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
+import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { initRealtime } from './realtime.js';
@@ -24,6 +25,15 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+
+// ⚠️ ROUTE DE DEV : donne un token pour l'utilisateur :id. Désactivée en production.
+if (!config.prod) {
+    app.get('/api/dev/token/:id', (req, res) => {
+        const id = Number(req.params.id);
+        const token = jwt.sign({ id }, config.jwtSecret, { expiresIn: '7d' });
+        res.json({ id, token });
+    });
+}
 
 // Photos du portfolio (publiques une fois connecté côté front)
 app.use('/uploads/portfolio', express.static(path.join(config.uploadDir, 'portfolio'), {

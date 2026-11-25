@@ -17,7 +17,7 @@ export function creerSession(res, utilisateur) {
 }
 
 export function lireToken(req) {
-  const header = req.headers.authorization;
+    const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) return header.slice(7);
   return req.cookies?.[COOKIE];
 }
@@ -35,7 +35,7 @@ export async function utilisateurDepuisToken(token) {
   const { rows } = await query(
     'SELECT id_utilisateur, email, nom, prenom, role FROM utilisateur WHERE id_utilisateur = $1',
     [id],
-  );
+    );
   return rows[0] || null;
 }
 

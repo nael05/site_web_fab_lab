@@ -9,7 +9,10 @@ import NouveauProjet from './pages/NouveauProjet.jsx';
 import Avis from './pages/Avis.jsx';
 import Contact from './pages/Contact.jsx';
 import Messagerie from './pages/Messagerie.jsx';
-import AdminAccueil from './pages/admin/AdminAccueil.jsx';
+import AdminLayout, { AVenir } from './pages/admin/AdminLayout.jsx';
+import Suivi from './pages/admin/Suivi.jsx';
+import ProjetAdmin from './pages/admin/ProjetAdmin.jsx';
+import Planning from './pages/admin/Planning.jsx';
 import Introuvable from './pages/Introuvable.jsx';
 
 // Bloque l'accès si pas connecté ou mauvais rôle
@@ -37,8 +40,17 @@ export default function App() {
         <Route path="/messagerie" element={<Messagerie />} />
       </Route>
 
-      {/* Interface admin : à compléter (pages dans src/pages/admin/) */}
-      <Route path="/admin/*" element={<Protege role="admin"><AdminAccueil /></Protege>} />
+      {/* Interface admin (pages dans src/pages/admin/) */}
+      <Route path="/admin" element={<Protege role="admin"><AdminLayout /></Protege>}>
+        <Route index element={<Navigate to="suivi" replace />} />
+        <Route path="suivi" element={<Suivi />} />
+        <Route path="suivi/:id" element={<ProjetAdmin />} />
+        <Route path="planning" element={<Planning />} />
+        <Route path="stock" element={<AVenir titre="Stock & Tarifs" />} />
+        <Route path="portfolio" element={<AVenir titre="Portfolio" />} />
+        <Route path="messagerie" element={<AVenir titre="Messagerie" />} />
+        <Route path="*" element={<Navigate to="suivi" replace />} />
+      </Route>
 
       <Route path="*" element={<Introuvable />} />
     </Routes>

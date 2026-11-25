@@ -35,3 +35,7 @@ export const emitToUser = (idUtilisateur, event, data) => io?.to(`utilisateur:${
 
 // Prévenir tous les admins connectés
 export const emitToAdmins = (event, data) => io?.to('admins').emit(event, data);
+
+// Prévenir TOUT LE MONDE (élèves + admins). Uniquement pour du contenu PUBLIC,
+// comme le Portfolio : jamais pour un message ou un projet (ils sont privés).
+export const emitToAll = (event, data) => io?.emit(event, data);

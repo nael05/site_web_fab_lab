@@ -16,7 +16,7 @@
 // =====================================================================
 
 import { Router } from "express";
-import pool from "../../db.js"; // ton Pool pg (adapte le chemin si besoin)
+import { pool } from "../../db.js";
 
 const router = Router();
 
